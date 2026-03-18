@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OPSIN — Signal Finder</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #06080c;
+      color: #e2e8f0;
+      font-family: 'DM Sans', 'Helvetica Neue', system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    :root {
+      --card-bg: #0c0e14;
+      --card-border: #1a1e2e;
+      --border-dim: #151926;
+      --inset-bg: #080a0f;
+      --code-bg: #060810;
+      --text-primary: #e2e8f0;
+      --text-secondary: #8b9dc3;
+      --text-dim: #3e4a6a;
+      --accent: #63b6ff;
+      --green: #22c55e;
+      --amber: #f59e0b;
+    }
+    button { font-family: inherit; }
+    a { text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.2/babel.min.js"></script>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback } = React;
+
+    // ─── CONFIG ────────────────────────────────────────────────────────
+
+    const PERSONAS = {
+      PRICING: { name: "Pricing", keywords: ["Director of Pricing", "Pricing Strategy", "Revenue Management"] },
+      COMMERCIAL_STRAT: { name: "Commercial Strategy", keywords: ["Commercial Strategy", "Commercial Excellence"] },
+      COMMERCIAL_OPS: { name: "Commercial Ops", keywords: ["Commercial Operations", "Sales Operations", "Go-to-Market Strategy"] },
+      CORP_STRATEGY: { name: "Corporate Strategy", keywords: ["Corporate Strategy", "Strategic Planning"] },
+      TRANSFORMATION: { name: "Transformation", keywords: ["Transformation", "Strategic Initiatives", "Chief of Staff"] },
+      MARKET_ACCESS: { name: "Market Access", keywords: ["Market Access", "Pricing and Market Access"] },
+      GOV_PRICING: { name: "Govt Pricing", keywords: ["Government Pricing", "Contract Pricing"] },
+      GM: { name: "General Mgmt", keywords: ["General Manager", "Business Unit Leader", "P&L Owner"] },
+      PRODUCT_STRAT: { name: "Product Strategy", keywords: ["Product Strategy", "Product Management"] },
+    };
+
+    const AFFILIATIONS = [
+      { id: "BOOTH", name: "Chicago Booth", filter: "University of Chicago Booth School of Business" },
+      { id: "UVA", name: "UVA", filter: "University of Virginia" },
+      { id: "MCINTIRE", name: "McIntire", filter: "McIntire School of Commerce" },
+    ];
+
+    const SEGMENTS = [
+      {
+        id: "WATCHLIST", name: "Watchlist", tier: 0,
+        companies: ["Danaher", "Fortive", "McKesson", "Cardinal Health", "Anduril", "Capital One", "HCA Healthcare"],
+        personas: ["PRICING", "COMMERCIAL_STRAT", "COMMERCIAL_OPS", "CORP_STRATEGY", "TRANSFORMATION", "GM"],
+      },
+      {
+        id: "PHARMA", name: "Pharma / Biotech", tier: 1,
+        companies: ["Pfizer", "Johnson & Johnson", "Merck", "AbbVie", "Bristol-Myers Squibb", "Eli Lilly", "Amgen", "Gilead Sciences"],
+        personas: ["PRICING", "COMMERCIAL_STRAT", "COMMERCIAL_OPS", "MARKET_ACCESS", "GOV_PRICING", "GM", "TRANSFORMATION"],
+      },
+      {
+        id: "MEDTECH", name: "Medtech / Devices", tier: 1,
+        companies: ["Medtronic", "Abbott", "Boston Scientific", "Stryker", "Edwards Lifesciences"],
+        personas: ["PRICING", "COMMERCIAL_STRAT", "COMMERCIAL_OPS", "MARKET_ACCESS", "PRODUCT_STRAT", "TRANSFORMATION"],
+      },
+      {
+        id: "DEFENSE", name: "Defense / Aerospace", tier: 1,
+        companies: ["Lockheed Martin", "Northrop Grumman", "RTX", "L3Harris Technologies", "General Dynamics", "BAE Systems", "Vannevar Labs", "Shield AI"],
+        personas: ["PRICING", "COMMERCIAL_STRAT", "COMMERCIAL_OPS", "GOV_PRICING", "CORP_STRATEGY", "TRANSFORMATION"],
+      },
+      {
+        id: "FINSERV", name: "Financial Services", tier: 1,
+        companies: ["USAA", "Progressive", "Markel Group", "Vanguard"],
+        personas: ["PRICING", "COMMERCIAL_STRAT", "COMMERCIAL_OPS", "CORP_STRATEGY", "PRODUCT_STRAT", "TRANSFORMATION"],
+      },
+      {
+        id: "INDUSTRIAL", name: "Industrial Distribution", tier: 2,
+        companies: ["McMaster-Carr", "W.W. Grainger", "Fastenal", "MSC Industrial Direct", "HD Supply", "ITW"],
+        personas: ["PRICING", "COMMERCIAL_STRAT", "COMMERCIAL_OPS", "GM", "CORP_STRATEGY"],
+      },
+      {
+        id: "ENERGY", name: "Energy / Utilities", tier: 2,
+        companies: ["Dominion Energy", "Duke Energy", "NextEra Energy", "Southern Company", "Eversource Energy"],
+        personas: ["PRICING", "COMMERCIAL_STRAT", "COMMERCIAL_OPS", "CORP_STRATEGY"],
+      },
+      {
+        id: "CHEMS", name: "Specialty Chemicals", tier: 2,
+        companies: ["BASF", "Dow", "DuPont", "Eastman Chemical", "Sherwin-Williams"],
+        personas: ["PRICING", "COMMERCIAL_STRAT", "COMMERCIAL_OPS", "GM", "CORP_STRATEGY"],
+      },
+    ];
+
+    const BOOSTED = new Set(["Vannevar Labs", "Shield AI"]);
+    const NO_REPEAT_DAYS = 7;
+    const MOMENTUM_DECAY = 5;
+    const MOMENTUM_MULT = 2.0;
+    const STORAGE_KEY = "opsin_v1";
+    const TIER_TAG = { 0: "WATCHLIST", 1: "T1", 2: "T2" };
+    const TIER_CLR = { 0: "#f59e0b", 1: "#63b6ff", 2: "#6b7280" };
+
+    // ─── UTILS ─────────────────────────────────────────────────────────
+
+    const todayStr = () => new Date().toISOString().slice(0, 10);
+    const daysBetween = (d1, d2) => Math.floor((new Date(d2) - new Date(d1)) / 86400000);
+
+    function seededRandom(seed) {
+      let s = seed;
+      return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
+    }
+
+    function dateSeed(ds) {
+      let h = 0;
+      for (let i = 0; i < ds.length; i++) h = ((h << 5) - h + ds.charCodeAt(i)) | 0;
+      return Math.abs(h) || 1;
+    }
+
+    function weightedPick(items, weights, rng) {
+      const total = weights.reduce((a, b) => a + b, 0);
+      let r = rng() * total;
+      for (let i = 0; i < items.length; i++) { r -= weights[i]; if (r <= 0) return i; }
+      return items.length - 1;
+    }
+
+    function loadState() {
+      try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || { history: {} }; }
+      catch { return { history: {} }; }
+    }
+
+    function saveState(s) { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); }
+
+    // ─── GENERATION ────────────────────────────────────────────────────
+
+    function generateSearches(state, dateStr) {
+      const rng = seededRandom(dateSeed(dateStr));
+      const hist = state.history || {};
+      const cLS = {}, sLS = {}, sR = {};
+
+      Object.entries(hist).forEach(([date, day]) => {
+        if (!day.searches) return;
+        day.searches.forEach((s) => {
+          if (!cLS[s.company] || date > cLS[s.company]) cLS[s.company] = date;
+          if (!sLS[s.segment] || date > sLS[s.segment]) sLS[s.segment] = date;
+          if (s.gotReply) { if (!sR[s.segment]) sR[s.segment] = []; sR[s.segment].push(date); }
+        });
+      });
+
+      const segW = SEGMENTS.map((seg) => {
+        const ld = sLS[seg.id];
+        const ds = ld ? Math.min(daysBetween(ld, dateStr), 30) : 30;
+        const tb = seg.tier === 0 ? 10 : seg.tier === 1 ? 2 : 0;
+        const reps = (sR[seg.id] || []).filter(d => daysBetween(d, dateStr) <= MOMENTUM_DECAY && daysBetween(d, dateStr) >= 0);
+        return (ds + tb) * (reps.length > 0 ? MOMENTUM_MULT : 1.0);
+      });
+
+      const searches = [];
+      const used = new Set();
+
+      // Slot 1: Watchlist
+      const wl = SEGMENTS.find(s => s.id === "WATCHLIST");
+      let wlC = wl.companies.filter(c => { const l = cLS[c]; return !l || daysBetween(l, dateStr) >= NO_REPEAT_DAYS; });
+      if (!wlC.length) wlC = [...wl.companies];
+      const wlW = wlC.map(c => (BOOSTED.has(c) ? 3 : 1) + (cLS[c] ? Math.min(daysBetween(cLS[c], dateStr), 30) : 15) * 0.5);
+      const wlCo = wlC[weightedPick(wlC, wlW, rng)];
+      used.add(wlCo);
+      searches.push({ company: wlCo, segment: "WATCHLIST", persona: wl.personas[Math.floor(rng() * wl.personas.length)], type: "COLD", affiliation: null, status: "pending", gotReply: false });
+
+      // Slots 2-5
+      for (let i = 0; i < 4; i++) {
+        const eIdx = SEGMENTS.map((_, j) => j).filter(j => SEGMENTS[j].id !== "WATCHLIST");
+        const eW = eIdx.map(j => segW[j]);
+        const seg = SEGMENTS[eIdx[weightedPick(eIdx, eW, rng)]];
+        let cands = seg.companies.filter(c => !used.has(c) && (!cLS[c] || daysBetween(cLS[c], dateStr) >= NO_REPEAT_DAYS));
+        if (!cands.length) cands = seg.companies.filter(c => !used.has(c));
+        if (!cands.length) cands = [...seg.companies];
+        const cW = cands.map(c => (cLS[c] ? Math.min(daysBetween(cLS[c], dateStr), 30) : 15) + (BOOSTED.has(c) ? 3 : 0));
+        const co = cands[weightedPick(cands, cW, rng)];
+        used.add(co);
+        searches.push({ company: co, segment: seg.id, persona: seg.personas[Math.floor(rng() * seg.personas.length)], type: "COLD", affiliation: null, status: "pending", gotReply: false });
+      }
+
+      const warm = new Set();
+      while (warm.size < 2) warm.add(Math.floor(rng() * 5));
+      searches.forEach((s, i) => {
+        if (warm.has(i)) { s.type = "WARM"; s.affiliation = AFFILIATIONS[Math.floor(rng() * AFFILIATIONS.length)]; }
+        s.seniority = s.type === "WARM" ? ["Senior Manager", "Director"] : ["Director", "VP"];
+      });
+
+      return searches;
+    }
+
+    // ─── COPY BUTTON ───────────────────────────────────────────────────
+
+    function CopyBtn({ text, label }) {
+      const [ok, setOk] = useState(false);
+      const copy = () => { navigator.clipboard.writeText(text).then(() => { setOk(true); setTimeout(() => setOk(false), 1400); }); };
+      return (
+        <button onClick={copy} style={{
+          display: "inline-flex", alignItems: "center", gap: 4,
+          padding: "5px 10px", fontSize: 11, fontWeight: 600,
+          color: ok ? "var(--green)" : "var(--accent)",
+          background: ok ? "rgba(34,197,94,0.08)" : "rgba(99,182,255,0.06)",
+          border: `1px solid ${ok ? "rgba(34,197,94,0.3)" : "rgba(99,182,255,0.15)"}`,
+          borderRadius: 4, cursor: "pointer", transition: "all 0.15s",
+          fontFamily: "'IBM Plex Mono', monospace",
+        }}>{ok ? "✓ Copied" : label || "Copy"}</button>
+      );
+    }
+
+    // ─── SEARCH CARD ───────────────────────────────────────────────────
+
+    function SearchCard({ search, index, onStatus, onReply }) {
+      const seg = SEGMENTS.find(s => s.id === search.segment);
+      const persona = PERSONAS[search.persona];
+      const tier = seg ? seg.tier : 1;
+      const done = search.status === "done";
+      const skip = search.status === "skipped";
+      const kw = persona.keywords.join(" OR ");
+      const url = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(kw)}`;
+
+      const filters = [
+        `Current company → "${search.company}"`,
+        ...(search.type === "WARM" && search.affiliation ? [`School → "${search.affiliation.filter}"`] : []),
+        `Seniority: ${search.seniority.join(", ")}`,
+      ];
+
+      return (
+        <div style={{
+          background: done ? "rgba(34,197,94,0.02)" : skip ? "rgba(100,116,139,0.02)" : "var(--card-bg)",
+          border: `1px solid ${done ? "rgba(34,197,94,0.2)" : skip ? "var(--border-dim)" : "var(--card-border)"}`,
+          borderRadius: 8, padding: "20px 22px",
+          opacity: skip ? 0.4 : 1, transition: "all 0.2s",
+        }}>
+          {/* Top */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fontWeight: 700, color: "var(--text-dim)" }}>{String(index + 1).padStart(2, "0")}</span>
+              <span style={{
+                fontSize: 10, fontWeight: 700, letterSpacing: "0.1em",
+                color: search.type === "WARM" ? "var(--amber)" : "#64748b",
+                background: search.type === "WARM" ? "rgba(245,158,11,0.1)" : "rgba(100,116,139,0.06)",
+                padding: "3px 8px", borderRadius: 3,
+              }}>{search.type === "WARM" ? "☀ WARM" : "COLD"}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, color: TIER_CLR[tier], letterSpacing: "0.08em" }}>{TIER_TAG[tier]}</span>
+            </div>
+            {done && <span style={{ color: "var(--green)", fontSize: 11, fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace" }}>✓ COMPLETE</span>}
+            {skip && <span style={{ color: "#6b7280", fontSize: 11, fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace" }}>SKIPPED</span>}
+          </div>
+
+          {/* Company */}
+          <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text-primary)", fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "-0.02em" }}>{search.company}</div>
+          <div style={{ fontSize: 12, color: "var(--text-dim)", fontFamily: "'IBM Plex Mono', monospace", marginTop: 2, marginBottom: 16 }}>
+            {seg ? seg.name : search.segment} · {persona.name}
+          </div>
+
+          {/* Search box */}
+          <div style={{ background: "var(--inset-bg)", borderRadius: 6, padding: "14px 16px", marginBottom: 14, border: "1px solid var(--border-dim)" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", color: "var(--text-dim)", textTransform: "uppercase", marginBottom: 10 }}>LinkedIn Search</div>
+
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: "var(--accent)" }}>① Paste in search bar</span>
+                <CopyBtn text={kw} />
+              </div>
+              <div style={{
+                fontSize: 12, color: "var(--text-secondary)", fontFamily: "'IBM Plex Mono', monospace",
+                lineHeight: 1.6, padding: "8px 10px", background: "var(--code-bg)", borderRadius: 4, wordBreak: "break-word",
+              }}>{kw}</div>
+            </div>
+
+            <div>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "var(--accent)", display: "block", marginBottom: 6 }}>② Apply filters</span>
+              {filters.map((f, i) => (
+                <div key={i} style={{
+                  fontSize: 12, color: "var(--text-secondary)", fontFamily: "'IBM Plex Mono', monospace",
+                  padding: "3px 0", lineHeight: 1.5,
+                }}><span style={{ color: "var(--text-dim)" }}>→</span> {f}</div>
+              ))}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <a href={url} target="_blank" rel="noopener noreferrer" style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              padding: "8px 16px", fontSize: 13, fontWeight: 600,
+              color: "#fff", background: "#0a66c2", borderRadius: 5, border: "none", cursor: "pointer",
+            }}>↗ Open LinkedIn</a>
+
+            {!done && !skip && (
+              <>
+                <button onClick={() => onStatus("done")} style={{
+                  padding: "8px 14px", fontSize: 13, fontWeight: 600,
+                  color: "var(--green)", background: "rgba(34,197,94,0.06)",
+                  border: "1px solid rgba(34,197,94,0.25)", borderRadius: 5, cursor: "pointer",
+                }}>✓ Done</button>
+                <button onClick={() => onStatus("skipped")} style={{
+                  padding: "8px 14px", fontSize: 13, fontWeight: 600,
+                  color: "var(--text-dim)", background: "transparent",
+                  border: "1px solid var(--border-dim)", borderRadius: 5, cursor: "pointer",
+                }}>Skip</button>
+              </>
+            )}
+            {(done || skip) && (
+              <button onClick={() => onStatus("pending")} style={{
+                padding: "8px 14px", fontSize: 13, fontWeight: 600,
+                color: "var(--text-dim)", background: "transparent",
+                border: "1px solid var(--border-dim)", borderRadius: 5, cursor: "pointer",
+              }}>↩ Undo</button>
+            )}
+            <button onClick={onReply} style={{
+              padding: "8px 14px", fontSize: 13, fontWeight: 600,
+              color: search.gotReply ? "var(--amber)" : "var(--text-dim)",
+              background: search.gotReply ? "rgba(245,158,11,0.1)" : "transparent",
+              border: `1px solid ${search.gotReply ? "rgba(245,158,11,0.35)" : "var(--border-dim)"}`,
+              borderRadius: 5, cursor: "pointer",
+            }}>{search.gotReply ? "⚡ Reply logged" : "⚡ Got a reply"}</button>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── STATS ─────────────────────────────────────────────────────────
+
+    function Stats({ state }) {
+      const hist = state.history || {};
+      const today = todayStr();
+      let done = 0, total = 0, replies = 0, days = 0;
+      const last7 = new Set();
+
+      Object.entries(hist).forEach(([date, day]) => {
+        if (!day.searches) return;
+        days++;
+        day.searches.forEach(s => {
+          total++;
+          if (s.status === "done") done++;
+          if (s.gotReply) replies++;
+          if (daysBetween(date, today) <= 7 && daysBetween(date, today) >= 0) last7.add(s.segment);
+        });
+      });
+
+      const items = [
+        { l: "Days", v: days },
+        { l: "Done", v: `${done}/${total}` },
+        { l: "Replies", v: replies },
+        { l: "7d Coverage", v: `${Math.round((last7.size / SEGMENTS.length) * 100)}%` },
+      ];
+
+      return (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 22 }}>
+          {items.map(s => (
+            <div key={s.l} style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: 6, padding: "12px 10px", textAlign: "center" }}>
+              <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-primary)", fontFamily: "'IBM Plex Mono', monospace" }}>{s.v}</div>
+              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", color: "var(--text-dim)", textTransform: "uppercase", marginTop: 3 }}>{s.l}</div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // ─── MOMENTUM ──────────────────────────────────────────────────────
+
+    function Momentum({ state }) {
+      const hist = state.history || {};
+      const today = todayStr();
+
+      const data = SEGMENTS.map(seg => {
+        let last = null, rr = 0, hits = 0;
+        Object.entries(hist).forEach(([date, day]) => {
+          if (!day.searches) return;
+          day.searches.forEach(s => {
+            if (s.segment === seg.id) {
+              hits++;
+              if (!last || date > last) last = date;
+              if (s.gotReply && daysBetween(date, today) <= MOMENTUM_DECAY) rr++;
+            }
+          });
+        });
+        const ds = last ? Math.min(daysBetween(last, today), 30) : 30;
+        const tb = seg.tier === 0 ? 10 : seg.tier === 1 ? 2 : 0;
+        const m = rr > 0 ? MOMENTUM_MULT : 1.0;
+        return { ...seg, last, rr, hits, weight: (ds + tb) * m, m, ds };
+      });
+
+      const mx = Math.max(...data.map(s => s.weight), 1);
+
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 6, lineHeight: 1.6, fontFamily: "'IBM Plex Mono', monospace" }}>
+            Segments with recent replies get {MOMENTUM_MULT}x weight for {MOMENTUM_DECAY} days.
+          </div>
+          {data.sort((a, b) => b.weight - a.weight).map(seg => (
+            <div key={seg.id} style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: 6, padding: "14px 16px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>{seg.name}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: TIER_CLR[seg.tier], letterSpacing: "0.08em" }}>{TIER_TAG[seg.tier]}</span>
+                  {seg.m > 1 && <span style={{ fontSize: 10, fontWeight: 700, color: "var(--amber)", background: "rgba(245,158,11,0.1)", padding: "2px 6px", borderRadius: 3 }}>⚡ {seg.m}x</span>}
+                </div>
+                <span style={{ fontSize: 17, fontWeight: 700, color: "var(--text-primary)", fontFamily: "'IBM Plex Mono', monospace" }}>{seg.weight.toFixed(1)}</span>
+              </div>
+              <div style={{ height: 5, background: "var(--inset-bg)", borderRadius: 3, overflow: "hidden", marginBottom: 6 }}>
+                <div style={{ height: "100%", width: `${(seg.weight / mx) * 100}%`, background: seg.m > 1 ? "var(--amber)" : TIER_CLR[seg.tier], borderRadius: 3, transition: "width 0.3s" }} />
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "'IBM Plex Mono', monospace", display: "flex", gap: 14 }}>
+                <span>{seg.hits} hits</span><span>{seg.ds}d ago</span>
+                {seg.rr > 0 && <span style={{ color: "var(--amber)" }}>{seg.rr} recent replies</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // ─── HISTORY ───────────────────────────────────────────────────────
+
+    function History({ state }) {
+      const hist = state.history || {};
+      const dates = Object.keys(hist).sort().reverse().slice(0, 14);
+
+      if (!dates.length) return (
+        <div style={{ color: "var(--text-dim)", fontSize: 13, textAlign: "center", padding: 40, fontFamily: "'IBM Plex Mono', monospace" }}>No history yet.</div>
+      );
+
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {dates.map(date => {
+            const day = hist[date];
+            if (!day.searches) return null;
+            const d = day.searches.filter(s => s.status === "done").length;
+            const r = day.searches.filter(s => s.gotReply).length;
+            return (
+              <div key={date} style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: 6, padding: "12px 16px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", fontFamily: "'IBM Plex Mono', monospace" }}>{date}</span>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <span style={{ fontSize: 12, color: "var(--green)" }}>{d}/5</span>
+                    {r > 0 && <span style={{ fontSize: 12, color: "var(--amber)" }}>⚡{r}</span>}
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                  {day.searches.map((s, i) => (
+                    <span key={i} style={{
+                      fontSize: 11, padding: "3px 8px", borderRadius: 3,
+                      background: s.status === "done" ? "rgba(34,197,94,0.06)" : s.status === "skipped" ? "rgba(100,116,139,0.05)" : "rgba(99,182,255,0.05)",
+                      color: s.status === "done" ? "var(--green)" : s.status === "skipped" ? "var(--text-dim)" : "var(--text-secondary)",
+                      fontFamily: "'IBM Plex Mono', monospace",
+                    }}>{s.company}{s.gotReply ? " ⚡" : ""}</span>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    // ─── APP ───────────────────────────────────────────────────────────
+
+    function App() {
+      const [state, setState] = useState(loadState);
+      const [tab, setTab] = useState("today");
+      const today = todayStr();
+
+      useEffect(() => {
+        if (!state.history[today]) {
+          const searches = generateSearches(state, today);
+          const ns = { ...state, history: { ...state.history, [today]: { searches } } };
+          setState(ns); saveState(ns);
+        }
+      }, [today]);
+
+      const td = state.history[today] || { searches: [] };
+
+      const update = useCallback((i, u) => {
+        setState(prev => {
+          const ss = [...(prev.history[today]?.searches || [])];
+          ss[i] = { ...ss[i], ...u };
+          const ns = { ...prev, history: { ...prev.history, [today]: { searches: ss } } };
+          saveState(ns); return ns;
+        });
+      }, [today]);
+
+      const regen = useCallback(() => {
+        setState(prev => {
+          const h = { ...prev.history }; delete h[today];
+          const tmp = { ...prev, history: h };
+          const ss = generateSearches(tmp, today);
+          const ns = { ...tmp, history: { ...h, [today]: { searches: ss } } };
+          saveState(ns); return ns;
+        });
+      }, [today]);
+
+      const done = td.searches.filter(s => s.status === "done").length;
+      const pct = td.searches.length ? done / td.searches.length : 0;
+
+      return (
+        <div style={{ maxWidth: 680, margin: "0 auto", padding: "28px 20px 60px" }}>
+          {/* Header */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                  <h1 style={{ fontSize: 32, fontWeight: 700, margin: 0, letterSpacing: "-0.03em", fontFamily: "'Space Grotesk', sans-serif" }}>OPSIN</h1>
+                  <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.15em", color: "var(--text-dim)", textTransform: "uppercase" }}>signal finder</span>
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-dim)", fontFamily: "'IBM Plex Mono', monospace", marginTop: 4 }}>
+                  {today} · {done}/{td.searches.length} searches · 2 warm / 3 cold
+                </div>
+              </div>
+              <button onClick={regen} style={{
+                fontSize: 11, color: "var(--text-dim)", background: "transparent",
+                border: "1px solid var(--border-dim)", borderRadius: 4, padding: "6px 12px",
+                cursor: "pointer", fontWeight: 600, fontFamily: "'IBM Plex Mono', monospace",
+              }}>↻ Regen</button>
+            </div>
+            <div style={{ height: 3, background: "var(--inset-bg)", borderRadius: 2, marginTop: 16, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${pct * 100}%`, background: pct === 1 ? "var(--green)" : "var(--accent)", borderRadius: 2, transition: "width 0.3s" }} />
+            </div>
+          </div>
+
+          {/* Tabs */}
+          <div style={{ display: "flex", gap: 2, marginBottom: 22, borderBottom: "1px solid var(--border-dim)" }}>
+            {["today", "momentum", "history"].map(t => (
+              <button key={t} onClick={() => setTab(t)} style={{
+                padding: "10px 16px", fontSize: 13, fontWeight: 600,
+                color: tab === t ? "var(--text-primary)" : "var(--text-dim)",
+                background: "transparent", border: "none",
+                borderBottom: tab === t ? "2px solid var(--accent)" : "2px solid transparent",
+                cursor: "pointer", marginBottom: -1, textTransform: "capitalize",
+              }}>{t}</button>
+            ))}
+          </div>
+
+          {tab === "today" && (
+            <>
+              <Stats state={state} />
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {td.searches.map((s, i) => (
+                  <SearchCard key={i} search={s} index={i}
+                    onStatus={st => update(i, { status: st })}
+                    onReply={() => update(i, { gotReply: !s.gotReply })}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+          {tab === "momentum" && <Momentum state={state} />}
+          {tab === "history" && <History state={state} />}
+
+          <div style={{
+            marginTop: 36, paddingTop: 16, borderTop: "1px solid var(--border-dim)",
+            fontSize: 10, color: "var(--text-dim)", fontFamily: "'IBM Plex Mono', monospace",
+            textAlign: "center", letterSpacing: "0.05em",
+          }}>
+            OPSIN · {SEGMENTS.reduce((a, s) => a + s.companies.length, 0)} companies · {SEGMENTS.length} segments · sense the signal
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
