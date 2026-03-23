@@ -400,7 +400,7 @@
       return (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 6, lineHeight: 1.6, fontFamily: "'IBM Plex Mono', monospace" }}>
-            Segments with recent replies get {MOMENTUM_MULT}x weight for {MOMENTUM_DECAY} days.
+            Higher weight = more likely to appear tomorrow. Overdue segments rise. Replies add a {MOMENTUM_MULT}x boost for {MOMENTUM_DECAY} days.
           </div>
           {data.sort((a, b) => b.weight - a.weight).map(seg => (
             <div key={seg.id} style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: 6, padding: "14px 16px" }}>
@@ -408,7 +408,8 @@
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>{seg.name}</span>
                   <span style={{ fontSize: 10, fontWeight: 700, color: TIER_CLR[seg.tier], letterSpacing: "0.08em" }}>{TIER_TAG[seg.tier]}</span>
-                  {seg.m > 1 && <span style={{ fontSize: 10, fontWeight: 700, color: "var(--amber)", background: "rgba(245,158,11,0.1)", padding: "2px 6px", borderRadius: 3 }}>⚡ {seg.m}x</span>}
+                  {seg.m > 1 && <span style={{ fontSize: 10, fontWeight: 700, color: "var(--amber)", background: "rgba(245,158,11,0.1)", padding: "2px 6px", borderRadius: 3 }}>⚡ {seg.m}x BOOST</span>}
+                  {seg.hits === 0 && <span style={{ fontSize: 10, fontWeight: 600, color: "var(--text-dim)", background: "rgba(100,116,139,0.08)", padding: "2px 6px", borderRadius: 3 }}>UNSEEN</span>}
                 </div>
                 <span style={{ fontSize: 17, fontWeight: 700, color: "var(--text-primary)", fontFamily: "'IBM Plex Mono', monospace" }}>{seg.weight.toFixed(1)}</span>
               </div>
@@ -416,8 +417,8 @@
                 <div style={{ height: "100%", width: `${(seg.weight / mx) * 100}%`, background: seg.m > 1 ? "var(--amber)" : TIER_CLR[seg.tier], borderRadius: 3, transition: "width 0.3s" }} />
               </div>
               <div style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "'IBM Plex Mono', monospace", display: "flex", gap: 14 }}>
-                <span>{seg.hits} hits</span><span>{seg.ds}d ago</span>
-                {seg.rr > 0 && <span style={{ color: "var(--amber)" }}>{seg.rr} recent replies</span>}
+                <span>{seg.hits} searches run</span><span>{seg.ds === 30 && seg.hits === 0 ? "never served" : `${seg.ds}d since last`}</span>
+                {seg.rr > 0 && <span style={{ color: "var(--amber)" }}>{seg.rr} reply boost active</span>}
               </div>
             </div>
           ))}
@@ -479,6 +480,8 @@
     function App() {
       const [state, setState] = useState(loadState);
       const [tab, setTab] = useState("today");
+      const [showBackup, setShowBackup] = useState(false);
+      const [importMsg, setImportMsg] = useState(null);
       const today = todayStr();
 
       useEffect(() => {
@@ -519,8 +522,48 @@
         });
       }, []);
 
+      // ── Export / Import ──
+      const exportData = useCallback(() => {
+        const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `opsin-backup-${today}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }, [state, today]);
+
+      const importData = useCallback((e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          try {
+            const imported = JSON.parse(ev.target.result);
+            if (!imported.history) throw new Error("Invalid format");
+            // Merge: imported history + any current-day data we have
+            const merged = { history: { ...imported.history } };
+            // If today already exists in current state but not in import, keep current
+            if (state.history[today] && !imported.history[today]) {
+              merged.history[today] = state.history[today];
+            }
+            setState(merged);
+            saveState(merged);
+            const days = Object.keys(imported.history).length;
+            setImportMsg(`Restored ${days} days of history`);
+            setTimeout(() => setImportMsg(null), 3000);
+          } catch (err) {
+            setImportMsg("Import failed — invalid file");
+            setTimeout(() => setImportMsg(null), 3000);
+          }
+        };
+        reader.readAsText(file);
+        e.target.value = "";
+      }, [state, today]);
+
       const done = td.searches.filter(s => s.status === "done").length;
       const pct = td.searches.length ? done / td.searches.length : 0;
+      const totalDays = Object.keys(state.history || {}).length;
 
       return (
         <div style={{ maxWidth: 680, margin: "0 auto", padding: "28px 20px 60px" }}>
@@ -536,12 +579,59 @@
                   {today} · {done}/{td.searches.length} searches · 2 warm / 3 cold
                 </div>
               </div>
-              <button onClick={regen} style={{
-                fontSize: 11, color: "var(--text-dim)", background: "transparent",
-                border: "1px solid var(--border-dim)", borderRadius: 4, padding: "6px 12px",
-                cursor: "pointer", fontWeight: 600, fontFamily: "'IBM Plex Mono', monospace",
-              }}>↻ Regen</button>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => setShowBackup(!showBackup)} style={{
+                  fontSize: 11, color: showBackup ? "var(--accent)" : "var(--text-dim)", background: "transparent",
+                  border: `1px solid ${showBackup ? "rgba(99,182,255,0.3)" : "var(--border-dim)"}`, borderRadius: 4, padding: "6px 10px",
+                  cursor: "pointer", fontWeight: 600, fontFamily: "'IBM Plex Mono', monospace",
+                }}>💾</button>
+                <button onClick={regen} style={{
+                  fontSize: 11, color: "var(--text-dim)", background: "transparent",
+                  border: "1px solid var(--border-dim)", borderRadius: 4, padding: "6px 12px",
+                  cursor: "pointer", fontWeight: 600, fontFamily: "'IBM Plex Mono', monospace",
+                }}>↻ Regen</button>
+              </div>
             </div>
+
+            {/* Backup panel */}
+            {showBackup && (
+              <div style={{
+                marginTop: 14, padding: "14px 16px", background: "var(--card-bg)",
+                border: "1px solid var(--card-border)", borderRadius: 6,
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", color: "var(--text-dim)", textTransform: "uppercase", marginBottom: 10 }}>
+                  Backup & Restore — {totalDays} days saved
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <button onClick={exportData} style={{
+                    padding: "8px 14px", fontSize: 12, fontWeight: 600,
+                    color: "var(--accent)", background: "rgba(99,182,255,0.06)",
+                    border: "1px solid rgba(99,182,255,0.2)", borderRadius: 4, cursor: "pointer",
+                    fontFamily: "'IBM Plex Mono', monospace",
+                  }}>↓ Export JSON</button>
+                  <label style={{
+                    padding: "8px 14px", fontSize: 12, fontWeight: 600,
+                    color: "var(--amber)", background: "rgba(245,158,11,0.06)",
+                    border: "1px solid rgba(245,158,11,0.2)", borderRadius: 4, cursor: "pointer",
+                    fontFamily: "'IBM Plex Mono', monospace",
+                  }}>
+                    ↑ Import JSON
+                    <input type="file" accept=".json" onChange={importData} style={{ display: "none" }} />
+                  </label>
+                  {importMsg && (
+                    <span style={{
+                      fontSize: 11, color: importMsg.includes("fail") ? "#ef4444" : "var(--green)",
+                      fontFamily: "'IBM Plex Mono', monospace",
+                    }}>{importMsg}</span>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "'IBM Plex Mono', monospace", marginTop: 10, lineHeight: 1.6 }}>
+                  Export before switching devices. Import merges your history back in.
+                </div>
+              </div>
+            )}
+
+            {/* Progress bar */}
             <div style={{ height: 3, background: "var(--inset-bg)", borderRadius: 2, marginTop: 16, overflow: "hidden" }}>
               <div style={{ height: "100%", width: `${pct * 100}%`, background: pct === 1 ? "var(--green)" : "var(--accent)", borderRadius: 2, transition: "width 0.3s" }} />
             </div>
@@ -549,7 +639,7 @@
 
           {/* Tabs */}
           <div style={{ display: "flex", gap: 2, marginBottom: 22, borderBottom: "1px solid var(--border-dim)" }}>
-            {["today", "momentum", "history"].map(t => (
+            {["today", "weights", "history"].map(t => (
               <button key={t} onClick={() => setTab(t)} style={{
                 padding: "10px 16px", fontSize: 13, fontWeight: 600,
                 color: tab === t ? "var(--text-primary)" : "var(--text-dim)",
@@ -573,7 +663,7 @@
               </div>
             </>
           )}
-          {tab === "momentum" && <Momentum state={state} />}
+          {tab === "weights" && <Momentum state={state} />}
           {tab === "history" && <History state={state} onToggleReply={toggleHistoryReply} />}
 
           <div style={{
